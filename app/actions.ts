@@ -7,6 +7,7 @@ import { db, getSettings, logActivity, setShowStatus, SHOW_STATUSES, type ShowSt
 import { SESSION_COOKIE, sessionToken } from "@/lib/auth";
 import { addShow, approvePitch, cancelPending, draftForShow, runDiscovery, runTick } from "@/lib/pipeline";
 import { createDraftReply, disconnectGmail } from "@/lib/gmail";
+import { getSearch, runSmartSearch } from "@/lib/smart";
 
 function num(fd: FormData, key: string) {
   const v = Number(fd.get(key));
@@ -45,15 +46,62 @@ export async function logout() {
 export async function addShowAction(fd: FormData) {
   const feedId = str(fd, "feedId");
   const returnTo = str(fd, "returnTo") || "/discover";
+  const fitScore = fd.get("fitScore");
+  const fit =
+    fitScore !== null && fitScore !== "" && Number(fitScore) >= 0
+      ? { score: Number(fitScore), reason: str(fd, "fitReason") }
+      : undefined;
   let msg: string;
   try {
-    const r = await addShow(feedId, { autoDraft: true });
-    msg = r.created ? "Show added and scored. Drafts for good fits are in the queue." : "Already in your pipeline.";
+    const r = await addShow(feedId, { autoDraft: true, fit });
+    msg = r.created ? "Show added. Strong fits get a draft pitch in the Approval queue." : "Already in your pipeline.";
   } catch (e) {
     msg = `Could not add: ${(e as Error).message}`;
   }
   revalidatePath("/", "layout");
   back(returnTo, msg);
+}
+
+export async function smartSearchAction(fd: FormData) {
+  const brief = str(fd, "brief").trim();
+  if (!brief) back("/discover", "Describe the shows you're looking for.");
+  let id: number | null = null;
+  let err = "";
+  try {
+    id = await runSmartSearch(brief);
+  } catch (e) {
+    err = (e as Error).message;
+  }
+  if (id === null) back("/discover", `Smart search failed: ${err}`);
+  redirect(`/discover?sid=${id}`);
+}
+
+export async function addTopAction(fd: FormData) {
+  const sid = num(fd, "sid");
+  const min = num(fd, "min");
+  const search = await getSearch(sid);
+  if (!search) back("/discover", "Search not found.");
+  const known = new Set(
+    (await db()`select podcast_index_id from shows where podcast_index_id is not null`).map((r) => String(r.podcast_index_id)),
+  );
+  const picks = search.results
+    .filter((r) => r.score >= min && r.hostEmail && !known.has(String(r.feedId)))
+    .slice(0, 10);
+  let added = 0;
+  const errors: string[] = [];
+  for (const r of picks) {
+    try {
+      const res = await addShow(r.feedId, { autoDraft: true, fit: { score: r.score, reason: r.reason } });
+      if (res.created) added++;
+    } catch (e) {
+      errors.push(`${r.title}: ${(e as Error).message}`);
+    }
+  }
+  revalidatePath("/", "layout");
+  const msg = picks.length
+    ? `Added ${added} show${added === 1 ? "" : "s"} and drafted pitches. Review them in the Approval queue.${errors.length ? ` ${errors.length} failed.` : ""}`
+    : `No new shows scored ${min}+ with a host email.`;
+  back(`/discover?sid=${sid}`, msg);
 }
 
 export async function runDiscoveryAction() {
