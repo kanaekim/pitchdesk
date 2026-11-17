@@ -1,5 +1,7 @@
 import {
   db,
+  fromJson,
+  json,
   getSettings,
   logActivity,
   setShowStatus,
@@ -26,7 +28,9 @@ import { emailOf, getThread, gmailAccount, header, plainBody, sendEmail, stripQu
 async function getShow(id: number): Promise<Show> {
   const rows = await db()`select * from shows where id = ${id}`;
   if (!rows.length) throw new Error(`Show ${id} not found`);
-  return rows[0] as unknown as Show;
+  const show = rows[0] as unknown as Show;
+  show.latest_episodes = fromJson(show.latest_episodes, []);
+  return show;
 }
 
 async function isSuppressed(email: string) {
@@ -98,7 +102,7 @@ export async function addShow(
     values (${String(feed.id)}, ${feed.title}, ${feed.author || feed.ownerName || null}, ${feed.url},
       ${feed.artwork || feed.image || null}, ${feed.link || null}, ${stripHtml(feed.description ?? "").slice(0, 3000)},
       ${categoryList(feed)}, ${email}, ${emailStatus}, ${lastActivity(feed)}, ${feed.episodeCount ?? null},
-      ${JSON.stringify(episodes)}::jsonb, ${status})
+      ${json(episodes)}, ${status})
     on conflict (feed_url) do update set updated_at = now()
     returning id`;
   const showId = inserted[0].id as number;

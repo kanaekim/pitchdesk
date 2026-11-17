@@ -1,5 +1,5 @@
 // Smart search: a plain-English brief -> many keyword searches -> filter -> enrich -> Claude analysis -> ranked list.
-import { db, getSettings, type Settings } from "./db";
+import { db, fromJson, getSettings, json, type Settings } from "./db";
 import { claude, parseJson } from "./ai";
 import { categoryList, emailFromFeed, lastActivity, latestEpisodes, searchPodcasts, stripHtml, type PIFeed } from "./podcasts";
 
@@ -259,7 +259,7 @@ export async function runSmartSearch(brief: string): Promise<number> {
   };
   const rows = await db()`
     insert into searches (brief, terms, results, stats)
-    values (${brief}, ${JSON.stringify(terms)}::jsonb, ${JSON.stringify(results)}::jsonb, ${JSON.stringify(stats)}::jsonb)
+    values (${brief}, ${json(terms)}, ${json(results)}, ${json(stats)})
     returning id`;
   return rows[0].id as number;
 }
@@ -267,13 +267,27 @@ export async function runSmartSearch(brief: string): Promise<number> {
 export async function getSearch(id: number): Promise<SmartSearch | null> {
   await ensureTable();
   const rows = await db()`select * from searches where id = ${id}`;
-  return rows.length ? (rows[0] as unknown as SmartSearch) : null;
+  if (!rows.length) return null;
+  const r = rows[0];
+  const stats = fromJson<Partial<SmartStats>>(r.stats, {});
+  return {
+    id: r.id as number,
+    brief: r.brief as string,
+    terms: fromJson<string[]>(r.terms, []),
+    results: fromJson<SmartResult[]>(r.results, []),
+    stats: { criteria: [], found: 0, active: 0, analyzed: 0, failedTerms: [], ...stats },
+    created_at: r.created_at as Date,
+  };
 }
 
 export async function recentSearches(limit = 6): Promise<{ id: number; brief: string; created_at: Date; n: number }[]> {
   await ensureTable();
   const rows = await db()`
-    select id, brief, created_at, jsonb_array_length(results)::int as n
-    from searches order by created_at desc limit ${limit}`;
-  return rows as unknown as { id: number; brief: string; created_at: Date; n: number }[];
+    select id, brief, created_at, results from searches order by created_at desc limit ${limit}`;
+  return rows.map((r) => ({
+    id: r.id as number,
+    brief: r.brief as string,
+    created_at: r.created_at as Date,
+    n: fromJson<unknown[]>(r.results, []).length,
+  }));
 }

@@ -19,6 +19,24 @@ export function db(): Sql {
   return g.__pitchdeskSql;
 }
 
+// Pass objects/arrays to jsonb columns with this. Passing JSON.stringify(...) makes
+// postgres.js encode it twice, so the column ends up holding a string instead of an array.
+export function json(value: unknown) {
+  return db().json(value as Parameters<Sql["json"]>[0]);
+}
+
+// Reads a jsonb value that may have been stored double-encoded by an earlier version.
+export function fromJson<T>(value: unknown, fallback: T): T {
+  if (typeof value === "string") {
+    try {
+      return fromJson(JSON.parse(value), fallback);
+    } catch {
+      return fallback;
+    }
+  }
+  return (value ?? fallback) as T;
+}
+
 export type ShowStatus =
   | "new"
   | "no_email"
@@ -139,7 +157,10 @@ export interface Reply {
 export async function getSettings(): Promise<Settings> {
   const rows = await db()`select * from settings where id = 1`;
   if (!rows.length) throw new Error("Settings missing. Run `npm run db:setup` first.");
-  return rows[0] as unknown as Settings;
+  const s = rows[0] as unknown as Settings;
+  s.subject_lines = fromJson<string[]>(s.subject_lines, []);
+  s.discovery_terms = fromJson<string[]>(s.discovery_terms, []);
+  return s;
 }
 
 export async function logActivity(showId: number | null, kind: string, message: string) {
