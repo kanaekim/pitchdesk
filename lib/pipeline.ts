@@ -11,6 +11,7 @@ import {
   type Show,
 } from "./db";
 import { classifyReply, draftFollowup, draftPitch, scoreFit } from "./ai";
+import { enrichShow } from "./enrich";
 import {
   categoryList,
   emailFromFeed,
@@ -113,6 +114,12 @@ export async function addShow(
   try {
     const fit = opts.fit ?? (await scoreFit(s, show));
     await db()`update shows set fit_score = ${fit.score}, fit_reason = ${fit.reason}, updated_at = now() where id = ${showId}`;
+    // Enrich before drafting so the pitch can use the host's name.
+    try {
+      await enrichShow(showId, { useApollo: true, ownerName: feed.ownerName ?? null });
+    } catch (err) {
+      await logActivity(showId, "error", `Host lookup failed: ${(err as Error).message}`);
+    }
     show = await getShow(showId);
     if (opts.autoDraft && fit.score >= s.min_fit_score && sendable(show)) {
       await draftForShow(showId);

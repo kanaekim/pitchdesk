@@ -116,6 +116,22 @@ export interface Show {
   latest_episodes: Episode[];
   fit_score: number | null;
   fit_reason: string | null;
+  // host enrichment (columns added automatically by lib/enrich.ts)
+  host_name?: string | null;
+  host_title?: string | null;
+  host_company?: string | null;
+  host_domain?: string | null;
+  host_linkedin?: string | null;
+  host_linkedin_source?: string | null;
+  host_confidence?: string | null;
+  contact_page_url?: string | null;
+  guest_form_url?: string | null;
+  contact_emails?: unknown;
+  enrich_notes?: string | null;
+  enriched_at?: Date | null;
+  host_bio?: string | null;
+  host_location?: string | null;
+  host_headline?: string | null;
   status: ShowStatus;
   notes: string;
   created_at: Date;

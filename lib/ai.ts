@@ -62,7 +62,8 @@ function episodesBlock(eps: Episode[]) {
 
 function showBlock(show: Show) {
   return `PODCAST: ${show.title}
-HOST/AUTHOR: ${show.author ?? "unknown"}
+HOST: ${show.host_name ? `${show.host_name}${show.host_title ? `, ${show.host_title}` : ""}${show.host_company ? ` at ${show.host_company}` : ""}` : "unknown"}
+FEED AUTHOR: ${show.author ?? "unknown"}
 CATEGORIES: ${show.categories ?? ""}
 DESCRIPTION: ${(show.description ?? "").slice(0, 1200)}
 RECENT EPISODES:
@@ -96,7 +97,7 @@ Rules:
 - Match the VOICE. No flattery, no "I hope this email finds you well", no "I'd love to".
 - Subject: pick the best fit from the subject line list, or write one in the same style (lowercase, under 8 words). Replace {{podcast}} with the show name.
 - Do not include a signature; it is added automatically.
-- If you know the host's first name from the author field, greet them by first name ("Hi Rachel,"). Otherwise use "Hi there,".
+- If the HOST name is known, greet them by first name ("Hi Rachel,"). Otherwise use the first name from FEED AUTHOR only if it is clearly a person. Otherwise use "Hi there,".
 
 Return only JSON: {"subject": "...", "body": "...", "episode_ref": "exact episode title you referenced, or null"}.`,
     `${profileBlock(s)}\n\nSUBJECT LINES TO CHOOSE FROM:\n${subjects}\n\n---\n\n${showBlock(show)}`,
