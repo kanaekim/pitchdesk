@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { db, getSettings, logActivity, setShowStatus, SHOW_STATUSES, type ShowStatus } from "@/lib/db";
+import { db, getSettings, json, logActivity, setShowStatus, SHOW_STATUSES, type ShowStatus } from "@/lib/db";
 import { SESSION_COOKIE, sessionToken } from "@/lib/auth";
 import { addShow, approvePitch, cancelPending, draftForShow, runDiscovery, runTick } from "@/lib/pipeline";
 import { createDraftReply, disconnectGmail } from "@/lib/gmail";
@@ -235,8 +235,8 @@ export async function saveSettingsAction(fd: FormData) {
       guest_name = ${str(fd, "guest_name")}, sender_name = ${str(fd, "sender_name")},
       offer = ${str(fd, "offer")}, proof = ${str(fd, "proof")}, ask = ${str(fd, "ask")},
       topics = ${str(fd, "topics")}, voice = ${str(fd, "voice")}, signature = ${str(fd, "signature")},
-      subject_lines = ${JSON.stringify(lines("subject_lines"))}::jsonb,
-      discovery_terms = ${JSON.stringify(lines("discovery_terms"))}::jsonb,
+      subject_lines = ${json(lines("subject_lines"))},
+      discovery_terms = ${json(lines("discovery_terms"))},
       daily_cap = ${int("daily_cap", 1, 200)}, per_run_cap = ${int("per_run_cap", 1, 20)},
       send_start_hour = ${int("send_start_hour", 0, 23)}, send_end_hour = ${int("send_end_hour", 1, 24)},
       timezone = ${str(fd, "timezone") || "America/Toronto"},

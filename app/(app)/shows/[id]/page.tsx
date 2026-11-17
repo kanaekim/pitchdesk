@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { db, type Pitch, type Reply, type Show } from "@/lib/db";
+import { db, fromJson, type Episode, type Pitch, type Reply, type Show } from "@/lib/db";
 import { regenerateAction, setStatusAction, updateShowAction } from "../../../actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Badge, Flash, FitScore, PageHeader, fmtDate, fmtRelative } from "@/components/ui";
@@ -20,6 +20,7 @@ export default async function ShowPage({
   const rows = await db()`select * from shows where id = ${showId}`;
   if (!rows.length) notFound();
   const show = rows[0] as unknown as Show;
+  show.latest_episodes = fromJson<Episode[]>(show.latest_episodes, []);
   const pitches = (await db()`select * from pitches where show_id = ${showId} order by created_at`) as unknown as Pitch[];
   const replies = (await db()`select * from replies where show_id = ${showId} order by received_at`) as unknown as Reply[];
   const activity = await db()`select * from activity where show_id = ${showId} order by created_at desc limit 30`;

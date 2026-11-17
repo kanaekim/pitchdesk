@@ -1,4 +1,4 @@
-import { db, type Episode } from "@/lib/db";
+import { db, fromJson, type Episode } from "@/lib/db";
 import { approveAction, regenerateAction, saveDraftAction, skipShowAction, unapproveAction } from "../../actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Empty, Flash, FitScore, PageHeader, ShowLink, fmtDate } from "@/components/ui";
@@ -30,7 +30,7 @@ export default async function QueuePage({ searchParams }: { searchParams: Promis
       ) : (
         <ul className="space-y-5">
           {drafts.map((d) => {
-            const eps = (d.latest_episodes as Episode[]) ?? [];
+            const eps = fromJson<Episode[]>(d.latest_episodes, []);
             return (
               <li key={d.id as number} className="card p-5">
                 <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
