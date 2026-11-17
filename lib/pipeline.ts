@@ -77,7 +77,10 @@ export async function sentToday(tz: string): Promise<number> {
 
 // ---------- discovery ----------
 
-export async function addShow(feedId: number | string, opts: { autoDraft: boolean }) {
+export async function addShow(
+  feedId: number | string,
+  opts: { autoDraft: boolean; fit?: { score: number; reason: string } },
+) {
   const existing = await db()`select id from shows where podcast_index_id = ${String(feedId)}`;
   if (existing.length) return { showId: existing[0].id as number, created: false };
 
@@ -104,7 +107,7 @@ export async function addShow(feedId: number | string, opts: { autoDraft: boolea
   const s = await getSettings();
   let show = await getShow(showId);
   try {
-    const fit = await scoreFit(s, show);
+    const fit = opts.fit ?? (await scoreFit(s, show));
     await db()`update shows set fit_score = ${fit.score}, fit_reason = ${fit.reason}, updated_at = now() where id = ${showId}`;
     show = await getShow(showId);
     if (opts.autoDraft && fit.score >= s.min_fit_score && sendable(show)) {

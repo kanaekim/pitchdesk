@@ -2,7 +2,7 @@ import type { Episode, Settings, Show } from "./db";
 
 const MODEL = () => process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
 
-async function claude(system: string, user: string, maxTokens = 1200): Promise<string> {
+export async function claude(system: string, user: string, maxTokens = 1200): Promise<string> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("ANTHROPIC_API_KEY is not set.");
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -27,7 +27,7 @@ async function claude(system: string, user: string, maxTokens = 1200): Promise<s
     .join("");
 }
 
-function parseJson<T>(text: string): T {
+export function parseJson<T>(text: string): T {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start === -1 || end === -1) throw new Error("Model did not return JSON.");
