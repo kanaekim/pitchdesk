@@ -122,3 +122,20 @@ create table if not exists searches (
   stats jsonb not null default '{}',
   created_at timestamptz not null default now()
 );
+
+-- Host lookup columns (also added automatically on first use).
+alter table shows add column if not exists host_name text;
+alter table shows add column if not exists host_title text;
+alter table shows add column if not exists host_company text;
+alter table shows add column if not exists host_domain text;
+alter table shows add column if not exists host_linkedin text;
+alter table shows add column if not exists host_linkedin_source text;
+alter table shows add column if not exists host_confidence text;
+alter table shows add column if not exists contact_page_url text;
+alter table shows add column if not exists guest_form_url text;
+alter table shows add column if not exists contact_emails jsonb not null default '[]';
+alter table shows add column if not exists enrich_notes text;
+alter table shows add column if not exists enriched_at timestamptz;
+alter table shows add column if not exists host_bio text;
+alter table shows add column if not exists host_location text;
+alter table shows add column if not exists host_headline text;
