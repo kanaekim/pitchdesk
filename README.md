@@ -4,6 +4,7 @@ Podcast guest outreach for Kathy Slowinski (The AI Boss). A focused PodPitch rep
 
 ## What it does
 
+1. **Smart search** – describe the shows you want in plain English. Claude turns it into ~10 keyword searches, the app pulls every match from Podcast Index, keeps active English shows, reads 8 recent episodes and the host email for up to 40 of them, and Claude scores each one for executive audience, business + tech topics and whether it really interviews guests. Results show the score, guest format, evidence (real episode titles) and a one-line reason. Add shows one by one or "Add all 80+ with email".
 1. **Discover** – searches Podcast Index (4M+ shows), keeps active English shows, pulls the host email from each RSS feed and the five latest episodes, verifies the email, and scores fit with Claude against Kathy's profile.
 2. **Draft** – for shows at or above the fit threshold, Claude writes a pitch in Kathy's voice. It may reference a real recent episode by title, but never claims to have listened.
 3. **Approve** – every first pitch waits in the approval queue. Edit, rewrite, approve or skip.
