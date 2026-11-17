@@ -112,3 +112,13 @@ create table if not exists suppressions (
   reason text,
   created_at timestamptz not null default now()
 );
+
+-- Smart search results (also created automatically on first use).
+create table if not exists searches (
+  id serial primary key,
+  brief text not null,
+  terms jsonb not null default '[]',
+  results jsonb not null default '[]',
+  stats jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
