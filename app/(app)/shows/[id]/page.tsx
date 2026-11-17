@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { db, fromJson, type Episode, type Pitch, type Reply, type Show } from "@/lib/db";
-import { regenerateAction, setStatusAction, updateShowAction } from "../../../actions";
+import { enrichAction, regenerateAction, setStatusAction, updateShowAction, setPitchEmailAction } from "../../../actions";
+import type { ContactEmail } from "@/lib/enrich";
+import { HostProfile } from "@/components/HostProfile";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Badge, Flash, FitScore, PageHeader, fmtDate, fmtRelative } from "@/components/ui";
 
@@ -25,6 +27,7 @@ export default async function ShowPage({
   const replies = (await db()`select * from replies where show_id = ${showId} order by received_at`) as unknown as Reply[];
   const activity = await db()`select * from activity where show_id = ${showId} order by created_at desc limit 30`;
   const here = `/shows/${showId}`;
+  const contacts = fromJson<ContactEmail[]>(show.contact_emails, []);
   const hasDraft = pitches.some((p) => p.status === "draft" || p.status === "approved");
 
   return (
@@ -36,6 +39,8 @@ export default async function ShowPage({
 
       <div className="grid gap-6 md:grid-cols-3">
         <div className="space-y-6 md:col-span-2">
+          <HostProfile show={show} />
+
           <section className="card p-5">
             <div className="flex gap-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -99,6 +104,85 @@ export default async function ShowPage({
         </div>
 
         <div className="space-y-6">
+          <section className="card p-5">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold">Contact routes</h2>
+              <form action={enrichAction}>
+                <input type="hidden" name="showId" value={show.id} />
+                <SubmitButton className="text-xs text-muted hover:text-ink" pendingText="Looking up…">
+                  {show.enriched_at ? "Re-run lookup" : "Find host"}
+                </SubmitButton>
+              </form>
+            </div>
+            {!show.enriched_at ? (
+              <p className="text-sm text-muted">Not looked up yet. Click “Find host” to get the host profile, LinkedIn and emails.</p>
+            ) : (
+              <div className="space-y-2 text-sm">
+                {show.host_linkedin && (
+                  <div>
+                    <a href={show.host_linkedin} target="_blank" rel="noreferrer" className="underline">
+                      LinkedIn profile
+                    </a>
+                    <span className="text-xs text-muted"> · via {show.host_linkedin_source}</span>
+                  </div>
+                )}
+                {show.guest_form_url && (
+                  <div>
+                    <a href={show.guest_form_url} target="_blank" rel="noreferrer" className="font-medium text-good underline">
+                      Guest application form
+                    </a>
+                    <div className="text-xs text-muted">The show asks guests to apply here. Often better than a cold email.</div>
+                  </div>
+                )}
+                {show.contact_page_url && (
+                  <div>
+                    <a href={show.contact_page_url} target="_blank" rel="noreferrer" className="underline">
+                      Contact page
+                    </a>
+                  </div>
+                )}
+                <div>
+                  <div className="label mt-3">Emails found</div>
+                  {contacts.length === 0 ? (
+                    <p className="text-xs text-muted">None.</p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {contacts.map((c) => (
+                        <li key={c.email} className="flex items-center justify-between gap-2 text-xs">
+                          <span className="min-w-0 break-all">
+                            {c.email}
+                            <span className="text-muted">
+                              {" "}
+                              · {c.source === "rss" ? "podcast feed" : c.source === "website" ? "show website" : "Apollo"}
+                              {c.status ? ` · ${c.status}` : ""}
+                            </span>
+                          </span>
+                          {c.email === show.host_email ? (
+                            <span className="shrink-0 text-good">pitching</span>
+                          ) : (
+                            <form action={setPitchEmailAction} className="shrink-0">
+                              <input type="hidden" name="showId" value={show.id} />
+                              <input type="hidden" name="email" value={c.email} />
+                              <input type="hidden" name="source" value={c.source} />
+                              <SubmitButton className="text-muted underline hover:text-ink">Use</SubmitButton>
+                            </form>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {contacts.some((c) => c.source === "apollo") && (
+                    <p className="mt-2 text-xs text-muted">
+                      The direct email comes from Apollo, not from the show. Pitches go to the published address unless you click
+                      Use. The direct one is there as a backup or for a personal follow-up.
+                    </p>
+                  )}
+                </div>
+                {show.enrich_notes && <p className="text-xs text-muted">{show.enrich_notes}</p>}
+              </div>
+            )}
+          </section>
+
           <section className="card p-5">
             <h2 className="mb-3 text-sm font-semibold">Actions</h2>
             <div className="flex flex-wrap gap-2">

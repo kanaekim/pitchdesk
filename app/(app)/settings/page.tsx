@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { getSettings } from "@/lib/db";
 import { gmailAccount } from "@/lib/gmail";
+import { apolloEnabled, searchProvider } from "@/lib/enrich";
 import { disconnectGmailAction, saveSettingsAction } from "../../actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Flash, PageHeader } from "@/components/ui";
@@ -44,6 +45,25 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             </a>
           </div>
         )}
+      </section>
+
+      <section className="card mb-6 p-5">
+        <h2 className="mb-2 text-sm font-semibold">Host lookup</h2>
+        <ul className="space-y-1 text-sm">
+          <li>
+            <span className="text-good">●</span> Website and feed reading: always on
+          </li>
+          <li>
+            <span className={searchProvider() ? "text-good" : "text-muted"}>●</span> LinkedIn search:{" "}
+            {searchProvider() ?? "off (add SERPER_API_KEY or BRAVE_SEARCH_API_KEY in Vercel)"}
+          </li>
+          <li>
+            <span className={apolloEnabled() ? "text-good" : "text-muted"}>●</span> Apollo email lookup:{" "}
+            {apolloEnabled()
+              ? "on for every show where the host is identified (about 1 credit per host)"
+              : "off (add APOLLO_API_KEY in Vercel)"}
+          </li>
+        </ul>
       </section>
 
       <form action={saveSettingsAction} className="space-y-6">

@@ -1,6 +1,7 @@
 import { db, fromJson, type Episode } from "@/lib/db";
 import { approveAction, regenerateAction, saveDraftAction, skipShowAction, unapproveAction } from "../../actions";
 import { SubmitButton } from "@/components/SubmitButton";
+import { HostProfile, type HostProfileData } from "@/components/HostProfile";
 import { Empty, Flash, FitScore, PageHeader, ShowLink, fmtDate } from "@/components/ui";
 
 export const maxDuration = 120;
@@ -8,7 +9,12 @@ export const maxDuration = 120;
 export default async function QueuePage({ searchParams }: { searchParams: Promise<{ msg?: string }> }) {
   const { msg } = await searchParams;
   const drafts = await db()`
-    select p.*, sh.title, sh.author, sh.host_email, sh.email_status, sh.fit_score, sh.fit_reason, sh.latest_episodes, sh.image_url
+    select p.*, sh.title, sh.author, sh.host_email, sh.email_status, sh.fit_score, sh.fit_reason, sh.latest_episodes, sh.image_url,
+      to_jsonb(sh)->>'host_name' as host_name, to_jsonb(sh)->>'host_title' as host_title,
+      to_jsonb(sh)->>'host_company' as host_company, to_jsonb(sh)->>'host_location' as host_location,
+      to_jsonb(sh)->>'host_bio' as host_bio, to_jsonb(sh)->>'host_linkedin' as host_linkedin,
+      to_jsonb(sh)->>'guest_form_url' as guest_form_url, to_jsonb(sh)->'contact_emails' as contact_emails,
+      to_jsonb(sh)->>'enriched_at' as enriched_at
     from pitches p join shows sh on sh.id = p.show_id
     where p.status = 'draft'
     order by p.step desc, sh.fit_score desc nulls last, p.created_at`;
@@ -50,6 +56,12 @@ export default async function QueuePage({ searchParams }: { searchParams: Promis
                     <div className="max-w-xs">{d.fit_reason as string}</div>
                   </div>
                 </div>
+
+                {d.host_name ? (
+                  <div className="mb-4 rounded-lg bg-paper p-3">
+                    <HostProfile show={d as unknown as HostProfileData} compact />
+                  </div>
+                ) : null}
 
                 <div className="grid gap-5 md:grid-cols-3">
                   <form className="md:col-span-2" action={approveAction}>

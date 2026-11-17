@@ -8,6 +8,8 @@ import { SESSION_COOKIE, sessionToken } from "@/lib/auth";
 import { addShow, approvePitch, cancelPending, draftForShow, runDiscovery, runTick } from "@/lib/pipeline";
 import { createDraftReply, disconnectGmail } from "@/lib/gmail";
 import { getSearch, runSmartSearch } from "@/lib/smart";
+import { enrichShow } from "@/lib/enrich";
+import { verifyEmail } from "@/lib/podcasts";
 
 function num(fd: FormData, key: string) {
   const v = Number(fd.get(key));
@@ -86,7 +88,7 @@ export async function addTopAction(fd: FormData) {
   );
   const picks = search.results
     .filter((r) => r.score >= min && r.hostEmail && !known.has(String(r.feedId)))
-    .slice(0, 10);
+    .slice(0, 8);
   let added = 0;
   const errors: string[] = [];
   for (const r of picks) {
@@ -185,6 +187,32 @@ export async function updateShowAction(fd: FormData) {
     updated_at = now() where id = ${showId}`;
   revalidatePath("/", "layout");
   back(`/shows/${showId}`, "Saved.");
+}
+
+export async function enrichAction(fd: FormData) {
+  const showId = num(fd, "showId");
+  let msg: string;
+  try {
+    msg = (await enrichShow(showId, { useApollo: true })).join(" ");
+  } catch (e) {
+    msg = `Host lookup failed: ${(e as Error).message}`;
+  }
+  revalidatePath("/", "layout");
+  back(`/shows/${showId}`, msg);
+}
+
+export async function setPitchEmailAction(fd: FormData) {
+  const showId = num(fd, "showId");
+  const email = str(fd, "email").trim().toLowerCase();
+  const source = str(fd, "source");
+  if (!email.includes("@")) back(`/shows/${showId}`, "That doesn't look like an email.");
+  const status = await verifyEmail(email);
+  await db()`update shows set host_email = ${email}, email_status = ${status},
+    status = case when status = 'no_email' then 'new' else status end, updated_at = now()
+    where id = ${showId}`;
+  await logActivity(showId, "email", `Pitch email set to ${email} (from ${source}, check: ${status})`);
+  revalidatePath("/", "layout");
+  back(`/shows/${showId}`, `Pitches will go to ${email}. Draft a pitch when you're ready.`);
 }
 
 // ---------- inbox ----------
