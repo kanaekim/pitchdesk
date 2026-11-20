@@ -35,15 +35,31 @@ export function parseJson<T>(text: string): T {
 }
 
 /**
- * Ask Claude for structured JSON using forced tool use. The API guarantees the
- * reply arrives as a tool call matching `schema`, so there is no free text to parse.
+ * Anthropic's structured-output schemas want every object closed
+ * (additionalProperties: false) and prefer anyOf over type arrays like
+ * ["string","null"]. Normalise so call sites can write simple schemas.
  */
-export async function claudeJson<T>(
-  system: string,
-  user: string,
-  schema: Record<string, unknown>,
-  maxTokens = 1200,
-): Promise<T> {
+function normalizeSchema(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(normalizeSchema);
+  if (!node || typeof node !== "object") return node;
+  const src = node as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(src)) out[k] = normalizeSchema(v);
+  if (Array.isArray(src.type)) {
+    const { type: types, ...rest } = out as { type: string[] } & Record<string, unknown>;
+    return { ...rest, anyOf: types.map((t) => ({ type: t })) };
+  }
+  if (out.type === "object" && out.additionalProperties === undefined) out.additionalProperties = false;
+  return out;
+}
+
+type MessagesResponse = {
+  content?: { type: string; text?: string }[];
+  stop_reason?: string;
+  error?: { message?: string };
+};
+
+async function callMessages(body: Record<string, unknown>): Promise<{ ok: boolean; status: number; json: MessagesResponse }> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error("ANTHROPIC_API_KEY is not set.");
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -53,40 +69,61 @@ export async function claudeJson<T>(
       "anthropic-version": "2023-06-01",
       "content-type": "application/json",
     },
-    body: JSON.stringify({
+    body: JSON.stringify(body),
+  });
+  return { ok: res.ok, status: res.status, json: (await res.json()) as MessagesResponse };
+}
+
+/**
+ * Ask Claude for structured JSON. Uses native structured outputs
+ * (output_config.format = json_schema), which newer models support in place of
+ * forced tool_choice. If the API rejects that request, retries once with a plain
+ * "reply with JSON only" prompt and parses the text.
+ */
+export async function claudeJson<T>(
+  system: string,
+  user: string,
+  schema: Record<string, unknown>,
+  maxTokens = 1200,
+): Promise<T> {
+  const textOf = (j: MessagesResponse) =>
+    (j.content ?? [])
+      .filter((c) => c.type === "text")
+      .map((c) => c.text ?? "")
+      .join("");
+
+  const first = await callMessages({
+    model: MODEL(),
+    max_tokens: maxTokens,
+    system,
+    messages: [{ role: "user", content: user }],
+    output_config: { format: { type: "json_schema", schema: normalizeSchema(schema) } },
+  });
+
+  let json = first.json;
+  if (!first.ok) {
+    // Fallback: no native structured output for this request. Ask in plain words instead.
+    const retry = await callMessages({
       model: MODEL(),
       max_tokens: maxTokens,
-      system,
+      system: `${system}\n\nReply with ONLY a single JSON object that matches this JSON Schema. No prose, no markdown fences.\n${JSON.stringify(schema)}`,
       messages: [{ role: "user", content: user }],
-      tools: [
-        {
-          name: "respond",
-          description: "Return the answer as structured data.",
-          input_schema: schema,
-        },
-      ],
-      tool_choice: { type: "tool", name: "respond" },
-    }),
-  });
-  const json = (await res.json()) as {
-    content?: { type: string; text?: string; input?: unknown }[];
-    stop_reason?: string;
-    error?: { message?: string };
-  };
-  if (!res.ok) throw new Error(`Claude API: ${json.error?.message ?? res.status}`);
-  const block = (json.content ?? []).find((c) => c.type === "tool_use");
-  if (block && block.input && typeof block.input === "object") {
-    if (json.stop_reason === "max_tokens") {
-      throw new Error("Claude's answer was cut off (max_tokens). Try again.");
+    });
+    if (!retry.ok) {
+      throw new Error(`Claude API: ${retry.json.error?.message ?? first.json.error?.message ?? retry.status}`);
     }
-    return block.input as T;
+    json = retry.json;
   }
-  // Fallback: older behaviour, in case no tool call came back.
-  const text = (json.content ?? [])
-    .filter((c) => c.type === "text")
-    .map((c) => c.text ?? "")
-    .join("");
-  return parseJson<T>(text);
+
+  if (json.stop_reason === "max_tokens") {
+    throw new Error("Claude's answer was cut off (max_tokens). Try again.");
+  }
+  const text = textOf(json).trim();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return parseJson<T>(text);
+  }
 }
 
 function profileBlock(s: Settings) {
