@@ -34,6 +34,61 @@ export function parseJson<T>(text: string): T {
   return JSON.parse(text.slice(start, end + 1)) as T;
 }
 
+/**
+ * Ask Claude for structured JSON using forced tool use. The API guarantees the
+ * reply arrives as a tool call matching `schema`, so there is no free text to parse.
+ */
+export async function claudeJson<T>(
+  system: string,
+  user: string,
+  schema: Record<string, unknown>,
+  maxTokens = 1200,
+): Promise<T> {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new Error("ANTHROPIC_API_KEY is not set.");
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: MODEL(),
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: "user", content: user }],
+      tools: [
+        {
+          name: "respond",
+          description: "Return the answer as structured data.",
+          input_schema: schema,
+        },
+      ],
+      tool_choice: { type: "tool", name: "respond" },
+    }),
+  });
+  const json = (await res.json()) as {
+    content?: { type: string; text?: string; input?: unknown }[];
+    stop_reason?: string;
+    error?: { message?: string };
+  };
+  if (!res.ok) throw new Error(`Claude API: ${json.error?.message ?? res.status}`);
+  const block = (json.content ?? []).find((c) => c.type === "tool_use");
+  if (block && block.input && typeof block.input === "object") {
+    if (json.stop_reason === "max_tokens") {
+      throw new Error("Claude's answer was cut off (max_tokens). Try again.");
+    }
+    return block.input as T;
+  }
+  // Fallback: older behaviour, in case no tool call came back.
+  const text = (json.content ?? [])
+    .filter((c) => c.type === "text")
+    .map((c) => c.text ?? "")
+    .join("");
+  return parseJson<T>(text);
+}
+
 function profileBlock(s: Settings) {
   return `GUEST: ${s.guest_name}
 
@@ -71,12 +126,16 @@ ${episodesBlock(show.latest_episodes ?? [])}`;
 }
 
 export async function scoreFit(s: Settings, show: Show): Promise<{ score: number; reason: string }> {
-  const text = await claude(
-    `You qualify podcasts for a guest booking campaign. Be strict. A good fit has an audience of CEOs, founders, executives, board members or business owners, regularly interviews outside guests, and would plausibly book this guest. Shows that are solo-host only, hobby, entertainment, or unrelated niches score low. Return only JSON: {"score": 0-100, "reason": "one short sentence"}.`,
+  const r = await claudeJson<{ score: number; reason: string }>(
+    `You qualify podcasts for a guest booking campaign. Be strict. A good fit has an audience of CEOs, founders, executives, board members or business owners, regularly interviews outside guests, and would plausibly book this guest. Shows that are solo-host only, hobby, entertainment, or unrelated niches score low. Give a score from 0 to 100 and a one-sentence reason.`,
     `${profileBlock(s)}\n\n---\n\n${showBlock(show)}`,
-    300,
+    {
+      type: "object",
+      properties: { score: { type: "number" }, reason: { type: "string" } },
+      required: ["score", "reason"],
+    },
+    400,
   );
-  const r = parseJson<{ score: number; reason: string }>(text);
   return { score: Math.max(0, Math.min(100, Math.round(Number(r.score) || 0))), reason: String(r.reason ?? "") };
 }
 
@@ -85,7 +144,7 @@ export async function draftPitch(
   show: Show,
 ): Promise<{ subject: string; body: string; episode_ref: string | null }> {
   const subjects = s.subject_lines.length ? s.subject_lines.map((x) => `- ${x}`).join("\n") : "(none provided)";
-  const text = await claude(
+  const r = await claudeJson<{ subject: string; body: string; episode_ref: string | null }>(
     `You write cold guest pitches to podcast hosts on behalf of the guest, in the guest's own first-person voice. The email is sent from the guest's personal inbox, so it must read like the guest wrote it to one host.
 
 Rules:
@@ -99,11 +158,19 @@ Rules:
 - Do not include a signature; it is added automatically.
 - If the HOST name is known, greet them by first name ("Hi Rachel,"). Otherwise use the first name from FEED AUTHOR only if it is clearly a person. Otherwise use "Hi there,".
 
-Return only JSON: {"subject": "...", "body": "...", "episode_ref": "exact episode title you referenced, or null"}.`,
+Return subject, body, and episode_ref (the exact episode title you referenced, or null).`,
     `${profileBlock(s)}\n\nSUBJECT LINES TO CHOOSE FROM:\n${subjects}\n\n---\n\n${showBlock(show)}`,
-    900,
+    {
+      type: "object",
+      properties: {
+        subject: { type: "string" },
+        body: { type: "string" },
+        episode_ref: { type: ["string", "null"] },
+      },
+      required: ["subject", "body", "episode_ref"],
+    },
+    1500,
   );
-  const r = parseJson<{ subject: string; body: string; episode_ref: string | null }>(text);
   return {
     subject: String(r.subject ?? "").replace(/\{\{podcast\}\}/gi, show.title),
     body: String(r.body ?? "").trim(),
@@ -128,15 +195,21 @@ export async function classifyReply(
   pitch: string,
   reply: string,
 ): Promise<{ classification: "positive" | "question" | "negative" | "out_of_office" | "other"; suggested_reply: string }> {
-  const text = await claude(
+  const r = await claudeJson<{ classification: string; suggested_reply: string }>(
     `You triage replies from podcast hosts to a guest pitch, and draft the guest's response in the guest's voice.
 Classify as one of: "positive" (wants to book or asks for dates/topics), "question" (needs info before deciding, or redirects to a form/producer), "negative" (no, not a fit, pay-to-play offer), "out_of_office" (auto-reply), "other".
-For positive or question replies, write a short reply (40 to 100 words) from the guest that answers directly and moves toward a recording date. Offer topics from the list if useful. Do not invent availability; say "I'll send a few times" if dates are needed. For negative, write a gracious one or two line thank-you. For out_of_office, leave suggested_reply empty.
-Return only JSON: {"classification": "...", "suggested_reply": "..."}.`,
+For positive or question replies, write a short reply (40 to 100 words) from the guest that answers directly and moves toward a recording date. Offer topics from the list if useful. Do not invent availability; say "I'll send a few times" if dates are needed. For negative, write a gracious one or two line thank-you. For out_of_office, leave suggested_reply empty.`,
     `${profileBlock(s)}\n\n---\n\nPODCAST: ${show.title}\n\nOUR PITCH:\n${pitch}\n\nTHEIR REPLY:\n${reply.slice(0, 4000)}`,
-    700,
+    {
+      type: "object",
+      properties: {
+        classification: { type: "string", enum: ["positive", "question", "negative", "out_of_office", "other"] },
+        suggested_reply: { type: "string" },
+      },
+      required: ["classification", "suggested_reply"],
+    },
+    1000,
   );
-  const r = parseJson<{ classification: string; suggested_reply: string }>(text);
   const allowed = ["positive", "question", "negative", "out_of_office", "other"] as const;
   const c = (allowed as readonly string[]).includes(r.classification) ? (r.classification as (typeof allowed)[number]) : "other";
   return { classification: c, suggested_reply: String(r.suggested_reply ?? "") };

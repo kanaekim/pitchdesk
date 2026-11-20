@@ -1,6 +1,6 @@
 // Smart search: a plain-English brief -> many keyword searches -> filter -> enrich -> Claude analysis -> ranked list.
 import { db, fromJson, getSettings, json, type Settings } from "./db";
-import { claude, parseJson } from "./ai";
+import { claudeJson } from "./ai";
 import { categoryList, emailFromFeed, lastActivity, latestEpisodes, searchPodcasts, stripHtml, type PIFeed } from "./podcasts";
 
 export const DEFAULT_BRIEF =
@@ -87,15 +87,21 @@ function guestSignal(titles: string[]): number {
 }
 
 async function planQueries(brief: string): Promise<{ terms: string[]; criteria: string[] }> {
-  const text = await claude(
+  const r = await claudeJson<{ terms?: unknown[]; criteria?: unknown[] }>(
     `You turn a podcast-search brief into keyword queries for the Podcast Index search API. It matches words in podcast titles, author names and descriptions. It is NOT semantic, so long phrases return nothing.
 Return 10 queries, each 1 to 3 words. Mix role words (CEO, CIO, CTO, founder, executive, leadership, board), topic words (technology, digital transformation, enterprise tech, SaaS, AI, innovation), and format words (interviews, conversations). Prefer role + topic pairs like "CEO technology" or "CIO leadership". No quotes, no boolean operators, no duplicates.
-Also restate the brief as 3 to 5 concrete criteria a researcher can check.
-Return only JSON: {"terms": ["..."], "criteria": ["..."]}`,
+Also restate the brief as 3 to 5 concrete criteria a researcher can check.`,
     brief,
-    800,
+    {
+      type: "object",
+      properties: {
+        terms: { type: "array", items: { type: "string" } },
+        criteria: { type: "array", items: { type: "string" } },
+      },
+      required: ["terms", "criteria"],
+    },
+    1000,
   );
-  const r = parseJson<{ terms?: unknown[]; criteria?: unknown[] }>(text);
   const terms = Array.from(new Set((r.terms ?? []).map((t) => String(t).trim()).filter(Boolean))).slice(0, 10);
   const criteria = (r.criteria ?? []).map((c) => String(c).trim()).filter(Boolean).slice(0, 5);
   if (!terms.length) throw new Error("Could not turn the brief into search terms.");
@@ -138,7 +144,7 @@ ${eps || "   (none)"}`;
     })
     .join("\n\n---\n\n");
 
-  const text = await claude(
+  const r = await claudeJson<{ results?: Analysis[] }>(
     `You are a podcast booking researcher. Judge each podcast against the brief and criteria using ONLY the data given. Do not guess beyond it.
 
 For each podcast decide:
@@ -151,11 +157,33 @@ For each podcast decide:
 - score 0-100: 90+ near-perfect (executive audience, business plus technology, interviews guests, active), 70-89 good, 50-69 partial, under 50 poor.
 Hard rules: a show that does not interview outside guests cannot score above 55. Pure consumer tech, gadget reviews, coding tutorials, crypto trading and entertainment score under 40.
 
-Return only JSON: {"results": [{"id": 123, "score": 0, "guest_format": "", "host_is_exec": "", "audience": "", "topics": [], "evidence": "", "reason": ""}]}`,
+Return one result object per podcast, using the podcast's ID.`,
     `BRIEF:\n${brief}\n\nCRITERIA:\n${criteria.map((c) => `- ${c}`).join("\n")}\n\nGUEST WE WANT TO BOOK: ${s.guest_name}. ${s.offer.slice(0, 400)}\n\n=== PODCASTS ===\n\n${shows}`,
-    3500,
+    {
+      type: "object",
+      properties: {
+        results: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "number" },
+              score: { type: "number" },
+              guest_format: { type: "string" },
+              host_is_exec: { type: "string" },
+              audience: { type: "string" },
+              topics: { type: "array", items: { type: "string" } },
+              evidence: { type: "string" },
+              reason: { type: "string" },
+            },
+            required: ["id", "score", "guest_format", "host_is_exec", "audience", "topics", "evidence", "reason"],
+          },
+        },
+      },
+      required: ["results"],
+    },
+    4500,
   );
-  const r = parseJson<{ results?: Analysis[] }>(text);
   return r.results ?? [];
 }
 

@@ -5,7 +5,7 @@
 // Apollo (optional): look up the host's direct work email, LinkedIn and location for every show where the host is known.
 // Found contacts are added alongside the published one, never in place of it.
 import { db, fromJson, json, logActivity, type Episode, type Show } from "./db";
-import { claude, parseJson } from "./ai";
+import { claudeJson } from "./ai";
 import { podcastById, stripHtml, verifyEmail } from "./podcasts";
 
 export interface ContactEmail {
@@ -204,7 +204,7 @@ async function identifyHost(show: Show, ownerName: string | null, site: SiteFind
     .slice(0, 6)
     .map((e) => `- "${e.title}": ${e.description.slice(0, 200)}`)
     .join("\n");
-  const text = await claude(
+  const r = await claudeJson<Partial<HostGuess>>(
     `Identify the main host of a podcast from the data given. Use only this data and do not invent anything.
 - host_name: the host's full name (first and last) if stated, else null. If the show is run by a company or network with no named host, use null.
 - host_title and host_company: the host's role and company if stated (e.g. "CEO", "Acme Corp"), else null.
@@ -212,8 +212,7 @@ async function identifyHost(show: Show, ownerName: string | null, site: SiteFind
 - linkedin_url: pick the URL from LINKEDIN LINKS that belongs to the host (a /in/ profile whose slug matches the name). Use null if none clearly match. Never make one up.
 - confidence: "high" if the name is stated explicitly, "medium" if inferred from several clues, "low" otherwise.
 - bio: two or three plain sentences about the host for a booking researcher: who they are, what they do, how long they have hosted, what the show covers. Only facts from the data. Third person. null if the host is unknown.
-- notes: one short sentence on how you know.
-Return only JSON: {"host_name": null, "host_title": null, "host_company": null, "company_domain": null, "linkedin_url": null, "confidence": "low", "bio": null, "notes": ""}`,
+- notes: one short sentence on how you know.`,
     `PODCAST: ${show.title}
 FEED AUTHOR: ${show.author ?? "unknown"}
 FEED OWNER NAME: ${ownerName ?? "unknown"}
@@ -227,9 +226,22 @@ LINKEDIN LINKS:
 ${site.linkedins.join("\n") || "(none)"}
 WEBSITE TEXT:
 ${site.text.slice(0, 3500) || "(not available)"}`,
-    800,
+    {
+      type: "object",
+      properties: {
+        host_name: { type: ["string", "null"] },
+        host_title: { type: ["string", "null"] },
+        host_company: { type: ["string", "null"] },
+        company_domain: { type: ["string", "null"] },
+        linkedin_url: { type: ["string", "null"] },
+        confidence: { type: "string", enum: ["high", "medium", "low"] },
+        bio: { type: ["string", "null"] },
+        notes: { type: "string" },
+      },
+      required: ["host_name", "host_title", "host_company", "company_domain", "linkedin_url", "confidence", "bio", "notes"],
+    },
+    1200,
   );
-  const r = parseJson<Partial<HostGuess>>(text);
   const clean = (v: unknown) => (typeof v === "string" && v.trim() && v.trim().toLowerCase() !== "null" ? v.trim() : null);
   const li = clean(r.linkedin_url);
   return {
